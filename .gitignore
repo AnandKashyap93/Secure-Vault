@@ -1,0 +1,17 @@
+# Common
+node_modules/
+.env
+.DS_Store
+Thumbs.db
+*.log
+
+# Client
+client/node_modules/
+client/dist/
+client/dist-ssr/
+client/*.local
+
+# Server
+server/node_modules/
+server/.env
+server/generated/prisma/
