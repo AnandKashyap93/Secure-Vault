@@ -36,6 +36,7 @@ const register = async (req, res) => {
 
         res.status(201).json({ message: 'User registered successfully', userId: user.id });
     } catch (error) {
+        console.error('Registration Error:', error);
         res.status(500).json({ message: 'Server error during registration', error: error.message });
     }
 };
@@ -81,6 +82,7 @@ const login = async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Login Error:', error);
         res.status(500).json({ message: 'Server error during login', error: error.message });
     }
 };
@@ -94,4 +96,26 @@ const getMe = async (req, res) => {
     res.json({ user: req.user });
 };
 
-module.exports = { register, login, logout, getMe };
+const internalHealth = async (req, res) => {
+    try {
+        await prisma.$connect();
+        res.json({
+            status: 'ok',
+            database: 'connected',
+            env: {
+                hasJwt: !!process.env.JWT_SECRET,
+                hasDb: !!process.env.DATABASE_URL,
+                hasMasterKey: !!process.env.ADMIN_MASTER_KEY,
+                nodeEnv: process.env.NODE_ENV
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            database: 'disconnected',
+            error: error.message
+        });
+    }
+};
+
+module.exports = { register, login, logout, getMe, internalHealth };
