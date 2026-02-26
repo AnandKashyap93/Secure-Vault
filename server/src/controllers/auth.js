@@ -3,14 +3,11 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const register = async (req, res) => {
-    const { email, password, name, role, adminKey } = req.body;
+    const { email, password, name, role } = req.body;
 
     try {
         if (role === 'ADMIN') {
-            const masterKey = process.env.ADMIN_MASTER_KEY || 'default_master_key_change_me';
-            if (adminKey?.trim() !== masterKey?.trim()) {
-                return res.status(403).json({ message: 'Invalid Admin Master Key' });
-            }
+            return res.status(403).json({ message: 'Administrator accounts cannot be created via public registration.' });
         }
 
         const isBanned = await prisma.bannedEmail.findUnique({ where: { email } });

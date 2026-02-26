@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import ParticleBackground from '../../components/ParticleBackground';
 
 const Register = () => {
-    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'CLIENT', adminKey: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'CLIENT' });
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const { register, login } = useAuth();
@@ -15,7 +15,7 @@ const Register = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await register(formData.email, formData.password, formData.name, formData.role, formData.adminKey);
+            await register(formData.email, formData.password, formData.name, formData.role);
             await login(formData.email, formData.password);
             navigate('/');
         } catch (err) {
@@ -120,27 +120,9 @@ const Register = () => {
                             >
                                 <option value="CLIENT">Client (Uploader)</option>
                                 <option value="APPROVER">Approver (Reviewer)</option>
-                                <option value="ADMIN">Administrator</option>
                             </select>
                         </div>
                     </div>
-
-                    {formData.role === 'ADMIN' && (
-                        <div className="input-group">
-                            <label>Admin Master Key</label>
-                            <div style={{ position: 'relative' }}>
-                                <Key size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                                <input
-                                    type="password"
-                                    placeholder="Enter Master Key"
-                                    style={{ paddingLeft: '3rem' }}
-                                    value={formData.adminKey}
-                                    onChange={(e) => setFormData({ ...formData, adminKey: e.target.value })}
-                                    required
-                                />
-                            </div>
-                        </div>
-                    )}
 
                     <button type="submit" className="premium-btn" style={{ width: '100%', marginTop: '1rem' }}>
                         Initialize Clearance
