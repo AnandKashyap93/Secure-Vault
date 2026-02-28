@@ -34,7 +34,12 @@ const register = async (req, res) => {
         res.status(201).json({ message: 'User registered successfully', userId: user.id });
     } catch (error) {
         console.error('Registration Error:', error);
-        res.status(500).json({ message: 'Server error during registration', error: error.message });
+        res.status(500).json({
+            message: 'Server error during registration',
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            code: error.code // Prisma error code
+        });
     }
 };
 
@@ -80,7 +85,12 @@ const login = async (req, res) => {
         });
     } catch (error) {
         console.error('Login Error:', error);
-        res.status(500).json({ message: 'Server error during login', error: error.message });
+        res.status(500).json({
+            message: 'Server error during login',
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            code: error.code
+        });
     }
 };
 

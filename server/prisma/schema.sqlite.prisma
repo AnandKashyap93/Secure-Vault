@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// User model
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("CLIENT")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents Document[] @relation("ClientDocuments")
+  comments  Comment[]
+  logs      AuditLog[]
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  title       String
+  description   String?
+  status        String   @default("PENDING")
+  priority      String   @default("NORMAL")
+  category      String   @default("GENERAL")
+  clientId      String
+  approverEmail String?
+  client        User     @relation("ClientDocuments", fields: [clientId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions    Version[]
+  comments    Comment[]
+}
+
+model Version {
+  id          String   @id @default(uuid())
+  versionNum  Int
+  fileUrl     String
+  fileName    String
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Comment {
+  id         String   @id @default(uuid())
+  text       String
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  ip        String?
+  device    String?
+  createdAt DateTime @default(now())
+}
+
+model BannedEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
