@@ -11,13 +11,16 @@ const adminRoutes = require('./src/routes/admin');
 const connectDB = require('./src/lib/db');
 
 const app = express();
+
 // Connect to database
 connectDB();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' ? true : ['http://localhost:5173', 'http://localhost:3000'],
+    origin: process.env.NODE_ENV === 'production'
+        ? [/\.vercel\.app$/, 'https://secure-vault.vercel.app', true]
+        : ['http://localhost:5173', 'http://localhost:3000'],
     credentials: true
 }));
 app.use(express.json());
