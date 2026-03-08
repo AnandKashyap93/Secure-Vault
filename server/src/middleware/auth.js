@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const prisma = require('../lib/prisma');
+const { User } = require('../models');
 
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies.token;
@@ -10,14 +10,18 @@ const authMiddleware = async (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = await prisma.user.findUnique({
-            where: { id: decoded.id },
-            select: { id: true, email: true, role: true, name: true }
-        });
+        const userFound = await User.findById(decoded.id).select('email role name');
 
-        if (!req.user) {
+        if (!userFound) {
             return res.status(401).json({ message: 'Unauthorized - User not found' });
         }
+
+        req.user = {
+            id: userFound._id.toString(),
+            email: userFound.email,
+            role: userFound.role,
+            name: userFound.name
+        };
 
         next();
     } catch (error) {

@@ -1,6 +1,7 @@
-const prisma = require('../lib/prisma');
+const { User, BannedEmail } = require('../models');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 const register = async (req, res) => {
     const { email, password, name, role } = req.body;
@@ -10,35 +11,32 @@ const register = async (req, res) => {
             return res.status(403).json({ message: 'Administrator accounts cannot be created via public registration.' });
         }
 
-        const isBanned = await prisma.bannedEmail.findUnique({ where: { email } });
+        const isBanned = await BannedEmail.findOne({ email });
         if (isBanned) {
             return res.status(403).json({ message: 'This email is permanently banned from registering or logging in.' });
         }
 
-        const targetRole = role || 'CLIENT';
-        const existingUser = await prisma.user.findUnique({ where: { email } });
+        const existingUser = await User.findOne({ email });
         if (existingUser) {
             return res.status(400).json({ message: 'User already exists with this email' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                name,
-                role: role || 'CLIENT',
-            }
+        const user = await User.create({
+            email,
+            password: hashedPassword,
+            name,
+            role: role || 'CLIENT',
         });
 
-        res.status(201).json({ message: 'User registered successfully', userId: user.id });
+        res.status(201).json({ message: 'User registered successfully', userId: user._id });
     } catch (error) {
         console.error('Registration Error:', error);
         res.status(500).json({
             message: 'Server error during registration',
             error: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-            code: error.code // Prisma error code
+            code: error.code
         });
     }
 };
@@ -47,12 +45,12 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     try {
-        const isBanned = await prisma.bannedEmail.findUnique({ where: { email } });
+        const isBanned = await BannedEmail.findOne({ email });
         if (isBanned) {
             return res.status(403).json({ message: 'This email is permanently banned from registering or logging in.' });
         }
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await User.findOne({ email });
         if (!user) {
             return res.status(400).json({ message: 'Invalid credentials' });
         }
@@ -63,7 +61,7 @@ const login = async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user.id, role: user.role },
+            { id: user._id, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: '1d' }
         );
@@ -74,10 +72,9 @@ const login = async (req, res) => {
             maxAge: 24 * 60 * 60 * 1000, // 1 day
         });
 
-
         res.json({
             user: {
-                id: user.id,
+                id: user._id,
                 email: user.email,
                 name: user.name,
                 role: user.role
@@ -105,7 +102,8 @@ const getMe = async (req, res) => {
 
 const internalHealth = async (req, res) => {
     try {
-        await prisma.$connect();
+        const isConnected = mongoose.connection.readyState === 1;
+        if (!isConnected) throw new Error('Database not connected');
         res.json({
             status: 'ok',
             database: 'connected',

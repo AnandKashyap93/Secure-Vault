@@ -8,7 +8,11 @@ const authRoutes = require('./src/routes/auth');
 const documentRoutes = require('./src/routes/documents');
 const adminRoutes = require('./src/routes/admin');
 
+const connectDB = require('./src/lib/db');
+
 const app = express();
+// Connect to database
+connectDB();
 const PORT = process.env.PORT || 5000;
 
 // Middleware

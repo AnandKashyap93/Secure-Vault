@@ -1,4 +1,4 @@
-const prisma = require('../lib/prisma');
+const { Document, Version, Comment } = require('../models');
 const { logAction } = require('../utils/logger');
 
 const uploadDocument = async (req, res) => {
@@ -10,29 +10,29 @@ const uploadDocument = async (req, res) => {
     }
 
     try {
-        // Create Document record
-        const document = await prisma.document.create({
-            data: {
-                title,
-                description,
-                approverEmail,
-                priority: priority || 'NORMAL',
-                category: category || 'GENERAL',
-                clientId: req.user.id,
-                versions: {
-                    create: {
-                        versionNum: 1,
-                        fileUrl: file.path,
-                        fileName: file.originalname,
-                    }
-                }
-            },
-            include: { versions: true }
+        const document = await Document.create({
+            title,
+            description,
+            approverEmail,
+            priority: priority || 'NORMAL',
+            category: category || 'GENERAL',
+            clientId: req.user.id
+        });
+
+        const version = await Version.create({
+            versionNum: 1,
+            fileUrl: file.path,
+            fileName: file.originalname,
+            documentId: document._id
         });
 
         await logAction('DOCUMENT_UPLOAD', `Uploaded document: ${title}`, req.user.id, req);
 
-        res.status(201).json(document);
+        const docObj = document.toObject();
+        docObj.id = docObj._id;
+        docObj.versions = [{ ...version.toObject(), id: version._id }];
+
+        res.status(201).json(docObj);
     } catch (error) {
         res.status(500).json({ message: 'Upload failed', error: error.message });
     }
@@ -47,39 +47,36 @@ const updateDocumentVersion = async (req, res) => {
     }
 
     try {
-        const document = await prisma.document.findUnique({
-            where: { id },
-            include: { versions: { orderBy: { versionNum: 'desc' }, take: 1 } }
-        });
+        const document = await Document.findById(id);
 
         if (!document) {
             return res.status(404).json({ message: 'Document not found' });
         }
 
-        if (document.clientId !== req.user.id) {
+        if (document.clientId.toString() !== req.user.id) {
             return res.status(403).json({ message: 'Unauthorized to update this document' });
         }
 
-        const nextVersion = document.versions[0].versionNum + 1;
+        const latestVersion = await Version.findOne({ documentId: id }).sort({ versionNum: -1 });
+        const nextVersion = latestVersion ? latestVersion.versionNum + 1 : 1;
 
-        const updatedDoc = await prisma.document.update({
-            where: { id },
-            data: {
-                status: 'PENDING', // Reset status on re-upload
-                versions: {
-                    create: {
-                        versionNum: nextVersion,
-                        fileUrl: file.path,
-                        fileName: file.originalname,
-                    }
-                }
-            },
-            include: { versions: true }
+        const newVersion = await Version.create({
+            versionNum: nextVersion,
+            fileUrl: file.path,
+            fileName: file.originalname,
+            documentId: document._id
         });
+
+        document.status = 'PENDING';
+        await document.save();
 
         await logAction('DOCUMENT_VERSION_UPDATE', `Uploaded version ${nextVersion} for: ${document.title}`, req.user.id, req);
 
-        res.json(updatedDoc);
+        const docObj = document.toObject();
+        docObj.id = docObj._id;
+        docObj.versions = [{ ...newVersion.toObject(), id: newVersion._id }];
+
+        res.json(docObj);
     } catch (error) {
         res.status(500).json({ message: 'Version update failed', error: error.message });
     }
@@ -87,11 +84,18 @@ const updateDocumentVersion = async (req, res) => {
 
 const getMyDocuments = async (req, res) => {
     try {
-        const documents = await prisma.document.findMany({
-            where: { clientId: req.user.id },
-            include: { versions: { orderBy: { versionNum: 'desc' } } }
-        });
-        res.json(documents);
+        const documents = await Document.find({ clientId: req.user.id }).sort({ updatedAt: -1 }).lean();
+
+        const docsWithVersions = await Promise.all(documents.map(async (doc) => {
+            const versions = await Version.find({ documentId: doc._id }).sort({ versionNum: -1 }).lean();
+            return {
+                ...doc,
+                id: doc._id,
+                versions: versions.map(v => ({ ...v, id: v._id }))
+            };
+        }));
+
+        res.json(docsWithVersions);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch documents', error: error.message });
     }
@@ -99,15 +103,22 @@ const getMyDocuments = async (req, res) => {
 
 const getAllDocumentsForApprover = async (req, res) => {
     try {
-        const documents = await prisma.document.findMany({
-            where: { approverEmail: req.user.email },
-            include: {
-                client: { select: { name: true, email: true } },
-                versions: { orderBy: { versionNum: 'desc' } }
-            },
-            orderBy: { updatedAt: 'desc' }
-        });
-        res.json(documents);
+        const documents = await Document.find({ approverEmail: req.user.email })
+            .populate('clientId', 'name email')
+            .sort({ updatedAt: -1 })
+            .lean();
+
+        const docsWithVersions = await Promise.all(documents.map(async (doc) => {
+            const versions = await Version.find({ documentId: doc._id }).sort({ versionNum: -1 }).lean();
+            return {
+                ...doc,
+                id: doc._id,
+                client: doc.clientId ? { name: doc.clientId.name, email: doc.clientId.email } : null,
+                versions: versions.map(v => ({ ...v, id: v._id }))
+            };
+        }));
+
+        res.json(docsWithVersions);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch documents', error: error.message });
     }
@@ -122,25 +133,36 @@ const reviewDocument = async (req, res) => {
     }
 
     try {
-        const updateData = { status };
+        const document = await Document.findById(id);
+        if (!document) return res.status(404).json({ message: 'Document not found' });
 
-        const document = await prisma.document.update({
-            where: { id },
-            data: {
-                status,
-                comments: comment ? {
-                    create: {
-                        text: comment,
-                        authorId: req.user.id
-                    }
-                } : undefined
-            },
-            include: { comments: { include: { author: { select: { name: true } } } } }
-        });
+        document.status = status;
+        await document.save();
+
+        if (comment) {
+            await Comment.create({
+                text: comment,
+                documentId: document._id,
+                authorId: req.user.id
+            });
+        }
 
         await logAction(`DOCUMENT_${status}`, `Reviewed document ID: ${id}`, req.user.id, req);
 
-        res.json(document);
+        // Fetch document details simply to return it with comments like Prisma did
+        const comments = await Comment.find({ documentId: document._id })
+            .populate('authorId', 'name')
+            .lean();
+
+        const docObj = document.toObject();
+        docObj.id = docObj._id;
+        docObj.comments = comments.map(c => ({
+            ...c,
+            id: c._id,
+            author: c.authorId ? { name: c.authorId.name } : null
+        }));
+
+        res.json(docObj);
     } catch (error) {
         res.status(500).json({ message: 'Review update failed', error: error.message });
     }
@@ -149,19 +171,29 @@ const reviewDocument = async (req, res) => {
 const getDocumentDetails = async (req, res) => {
     const { id } = req.params;
     try {
-        const document = await prisma.document.findUnique({
-            where: { id },
-            include: {
-                versions: { orderBy: { versionNum: 'desc' } },
-                comments: {
-                    include: { author: { select: { name: true, role: true } } },
-                    orderBy: { createdAt: 'desc' }
-                },
-                client: { select: { name: true, email: true } }
-            }
-        });
+        const document = await Document.findById(id)
+            .populate('clientId', 'name email')
+            .lean();
+
         if (!document) return res.status(404).json({ message: 'Document not found' });
-        res.json(document);
+
+        const versions = await Version.find({ documentId: document._id }).sort({ versionNum: -1 }).lean();
+        const comments = await Comment.find({ documentId: document._id })
+            .populate('authorId', 'name role')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.json({
+            ...document,
+            id: document._id,
+            client: document.clientId ? { name: document.clientId.name, email: document.clientId.email } : null,
+            versions: versions.map(v => ({ ...v, id: v._id })),
+            comments: comments.map(c => ({
+                ...c,
+                id: c._id,
+                author: c.authorId ? { name: c.authorId.name, role: c.authorId.role } : null
+            }))
+        });
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch document', error: error.message });
     }
@@ -170,10 +202,10 @@ const getDocumentDetails = async (req, res) => {
 const deleteDocument = async (req, res) => {
     const { id } = req.params;
     try {
-        const document = await prisma.document.findUnique({ where: { id } });
+        const document = await Document.findById(id);
         if (!document) return res.status(404).json({ message: 'Document not found' });
 
-        if (req.user.role !== 'ADMIN' && document.clientId !== req.user.id) {
+        if (req.user.role !== 'ADMIN' && document.clientId.toString() !== req.user.id) {
             return res.status(403).json({ message: 'Unauthorized to delete this document' });
         }
 
@@ -181,12 +213,9 @@ const deleteDocument = async (req, res) => {
             return res.status(403).json({ message: 'Approved documents can only be deleted by an Administrator.' });
         }
 
-        // Delete related records then document
-        await prisma.$transaction([
-            prisma.version.deleteMany({ where: { documentId: id } }),
-            prisma.comment.deleteMany({ where: { documentId: id } }),
-            prisma.document.delete({ where: { id } })
-        ]);
+        await Version.deleteMany({ documentId: document._id });
+        await Comment.deleteMany({ documentId: document._id });
+        await Document.findByIdAndDelete(document._id);
 
         await logAction('DOCUMENT_DELETED', `Deleted document: ${document.title}`, req.user.id, req);
 
